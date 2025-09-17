@@ -41,17 +41,8 @@ pub enum ContextServerCommand {
         timeout: Option<u64>,
     },
 
-    HttpSse {
-        sse_url: String,
-
-        post_url: Option<String>,
-
-        timeout: Option<u64>,
-    },
-
-    HttpStreamable {
+    Http {
         url: String,
-
         timeout: Option<u64>,
     },
 }
@@ -71,23 +62,14 @@ impl ContextServerCommand {
         }
     }
 
-    pub fn http_sse(sse_url: String, post_url: Option<String>, timeout: Option<u64>) -> Self {
-        Self::HttpSse {
-            sse_url,
-            post_url,
-            timeout,
-        }
-    }
-
-    pub fn http_streamable(url: String, timeout: Option<u64>) -> Self {
-        Self::HttpStreamable { url, timeout }
+    pub fn http(url: String, timeout: Option<u64>) -> Self {
+        Self::Http { url, timeout }
     }
 
     pub fn timeout(&self) -> u64 {
         match self {
             Self::Stdio { timeout, .. } => timeout.unwrap_or(60000),
-            Self::HttpSse { timeout, .. } => timeout.unwrap_or(60000),
-            Self::HttpStreamable { timeout, .. } => timeout.unwrap_or(60000),
+            Self::Http { timeout, .. } => timeout.unwrap_or(60000),
         }
     }
 }
@@ -114,18 +96,8 @@ impl std::fmt::Debug for ContextServerCommand {
                     .field("timeout", timeout)
                     .finish()
             }
-            Self::HttpSse {
-                sse_url,
-                post_url,
-                timeout,
-            } => f
-                .debug_struct("ContextServerCommand::HttpSse")
-                .field("sse_url", sse_url)
-                .field("post_url", post_url)
-                .field("timeout", timeout)
-                .finish(),
-            Self::HttpStreamable { url, timeout } => f
-                .debug_struct("ContextServerCommand::HttpStreamable")
+            Self::Http { url, timeout } => f
+                .debug_struct("ContextServerCommand::Http")
                 .field("url", url)
                 .field("timeout", timeout)
                 .finish(),
@@ -141,12 +113,7 @@ enum ContextServerTransport {
         timeout: Option<u64>,
         working_directory: Option<PathBuf>,
     },
-    HttpSse {
-        sse_url: Url,
-        post_url: Option<Url>,
-        timeout: Option<u64>,
-    },
-    HttpStreamable {
+    Http {
         url: Url,
         timeout: Option<u64>,
     },
@@ -194,28 +161,11 @@ impl ContextServer {
         }
     }
 
-    pub fn http_sse(
-        id: ContextServerId,
-        sse_url: Url,
-        post_url: Option<Url>,
-        timeout: Option<u64>,
-    ) -> Self {
+    pub fn http(id: ContextServerId, url: Url, timeout: Option<u64>) -> Self {
         Self {
             id,
             client: RwLock::new(None),
-            configuration: ContextServerTransport::HttpSse {
-                sse_url,
-                post_url,
-                timeout,
-            },
-        }
-    }
-
-    pub fn http_streamable(id: ContextServerId, url: Url, timeout: Option<u64>) -> Self {
-        Self {
-            id,
-            client: RwLock::new(None),
-            configuration: ContextServerTransport::HttpStreamable { url, timeout },
+            configuration: ContextServerTransport::Http { url, timeout },
         }
     }
 
@@ -266,19 +216,7 @@ impl ContextServer {
                 working_directory,
                 cx.clone(),
             )?,
-            ContextServerTransport::HttpSse {
-                sse_url,
-                post_url,
-                timeout,
-            } => Client::http_sse(
-                client::ContextServerId(self.id.0.clone()),
-                self.id().0,
-                sse_url.clone(),
-                post_url.clone(),
-                timeout.map(std::time::Duration::from_millis),
-                cx.clone(),
-            )?,
-            ContextServerTransport::HttpStreamable { url, timeout } => Client::http_streamable(
+            ContextServerTransport::Http { url, timeout } => Client::http(
                 client::ContextServerId(self.id.0.clone()),
                 self.id().0,
                 url.clone(),
