@@ -3649,6 +3649,7 @@ dependencies = [
  "serde_json",
  "smol",
  "tempfile",
+ "thiserror 2.0.12",
  "url",
  "util",
  "workspace-hack",

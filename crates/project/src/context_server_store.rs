@@ -498,55 +498,11 @@ impl ContextServerStore {
                     );
                     Arc::new(ContextServer::stdio(id, stdio_command, root_path))
                 }
-                context_server::ContextServerCommand::HttpSse {
-                    sse_url,
-                    post_url,
-                    timeout,
-                } => {
-                    let sse_url = match url::Url::parse(sse_url) {
-                        Ok(url) => url,
-                        Err(e) => {
-                            log::error!("Failed to parse SSE URL '{}': {}", sse_url, e);
-                            return Arc::new(ContextServer::stdio(
-                                id,
-                                context_server::ContextServerCommand::stdio(
-                                    std::path::PathBuf::from("echo"),
-                                    vec!["Failed to parse URL".to_string()],
-                                    None,
-                                    Some(1000),
-                                ),
-                                root_path,
-                            ));
-                        }
-                    };
-                    let post_url = match post_url.as_ref().map(|u| url::Url::parse(u)) {
-                        Some(Ok(url)) => Some(url),
-                        Some(Err(e)) => {
-                            log::error!(
-                                "Failed to parse POST URL '{}': {}",
-                                post_url.as_ref().unwrap(),
-                                e
-                            );
-                            return Arc::new(ContextServer::stdio(
-                                id,
-                                context_server::ContextServerCommand::stdio(
-                                    std::path::PathBuf::from("echo"),
-                                    vec!["Failed to parse POST URL".to_string()],
-                                    None,
-                                    Some(1000),
-                                ),
-                                root_path,
-                            ));
-                        }
-                        None => None,
-                    };
-                    Arc::new(ContextServer::http_sse(id, sse_url, post_url, *timeout))
-                }
-                context_server::ContextServerCommand::HttpStreamable { url, timeout } => {
+                context_server::ContextServerCommand::Http { url, timeout } => {
                     let parsed_url = match url::Url::parse(url) {
                         Ok(url) => url,
                         Err(e) => {
-                            log::error!("Failed to parse streamable URL '{}': {}", url, e);
+                            log::error!("Failed to parse HTTP URL '{}': {}", url, e);
                             return Arc::new(ContextServer::stdio(
                                 id,
                                 context_server::ContextServerCommand::stdio(
@@ -559,7 +515,7 @@ impl ContextServerStore {
                             ));
                         }
                     };
-                    Arc::new(ContextServer::http_streamable(id, parsed_url, *timeout))
+                    Arc::new(ContextServer::http(id, parsed_url, *timeout))
                 }
             }
         }
