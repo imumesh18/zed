@@ -220,22 +220,27 @@ impl AgentConnection for AcpConnection {
                 .filter_map(|id| {
                     let configuration = context_server_store.configuration_for_server(id)?;
                     let command = configuration.command();
-                    Some(acp::McpServer::Stdio {
-                        name: id.0.to_string(),
-                        command: command.path.clone(),
-                        args: command.args.clone(),
-                        env: if let Some(env) = command.env.as_ref() {
-                            env.iter()
-                                .map(|(name, value)| acp::EnvVariable {
-                                    name: name.clone(),
-                                    value: value.clone(),
-                                    meta: None,
-                                })
-                                .collect()
-                        } else {
-                            vec![]
-                        },
-                    })
+                    match command {
+                        context_server::ContextServerCommand::Stdio {
+                            path, args, env, ..
+                        } => Some(acp::McpServer::Stdio {
+                            name: id.0.to_string(),
+                            command: path.clone(),
+                            args: args.clone(),
+                            env: if let Some(env) = env.as_ref() {
+                                env.iter()
+                                    .map(|(name, value)| acp::EnvVariable {
+                                        name: name.clone(),
+                                        value: value.clone(),
+                                        meta: None,
+                                    })
+                                    .collect()
+                            } else {
+                                vec![]
+                            },
+                        }),
+                        _ => None,
+                    }
                 })
                 .collect()
         } else {

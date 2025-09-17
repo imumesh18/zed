@@ -20,10 +20,12 @@ async-trait.workspace = true
 collections.workspace = true
 futures.workspace = true
 gpui.workspace = true
+http_client.workspace = true
 log.workspace = true
 net.workspace = true
 parking_lot.workspace = true
 postage.workspace = true
+reqwest_client.workspace = true
 schemars.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -32,3 +34,4 @@ tempfile.workspace = true
 url = { workspace = true, features = ["serde"] }
 util.workspace = true
 workspace-hack.workspace = true
+

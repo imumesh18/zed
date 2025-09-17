@@ -17,10 +17,11 @@ use std::{
     },
     time::{Duration, Instant},
 };
+use url::Url;
 use util::{ResultExt, TryFutureExt};
 
 use crate::{
-    transport::{StdioTransport, Transport},
+    transport::{HttpTransport, HttpTransportConfig, StdioTransport, Transport},
     types::{CancelledParams, ClientNotification, Notification as _, notifications::Cancelled},
 };
 
@@ -180,7 +181,31 @@ impl Client {
         Self::new(server_id, server_name.into(), transport, timeout, cx)
     }
 
-    /// Creates a new Client instance for a context server.
+    pub fn http_sse(
+        server_id: ContextServerId,
+        server_name: Arc<str>,
+        sse_url: Url,
+        post_url: Option<Url>,
+        request_timeout: Option<Duration>,
+        cx: AsyncApp,
+    ) -> Result<Self> {
+        let config = HttpTransportConfig::Sse { sse_url, post_url };
+        let transport = Arc::new(HttpTransport::new(config, &cx)?);
+        Self::new(server_id, server_name, transport, request_timeout, cx)
+    }
+
+    pub fn http_streamable(
+        server_id: ContextServerId,
+        server_name: Arc<str>,
+        url: Url,
+        request_timeout: Option<Duration>,
+        cx: AsyncApp,
+    ) -> Result<Self> {
+        let config = HttpTransportConfig::StreamableHttp { url };
+        let transport = Arc::new(HttpTransport::new(config, &cx)?);
+        Self::new(server_id, server_name, transport, request_timeout, cx)
+    }
+
     pub fn new(
         server_id: ContextServerId,
         server_name: Arc<str>,

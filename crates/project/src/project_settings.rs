@@ -629,12 +629,7 @@ impl Settings for ProjectSettings {
         }
         impl From<VsCodeContextServerCommand> for ContextServerCommand {
             fn from(cmd: VsCodeContextServerCommand) -> Self {
-                Self {
-                    path: cmd.command,
-                    args: cmd.args.unwrap_or_default(),
-                    env: cmd.env,
-                    timeout: None,
-                }
+                Self::stdio(cmd.command, cmd.args.unwrap_or_default(), cmd.env, None)
             }
         }
         if let Some(mcp) = vscode.read_value("mcp").and_then(|v| v.as_object()) {
