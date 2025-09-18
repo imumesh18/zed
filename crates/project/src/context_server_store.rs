@@ -482,11 +482,42 @@ impl ContextServerStore {
         if let Some(factory) = self.context_server_factory.as_ref() {
             factory(id, configuration)
         } else {
-            Arc::new(ContextServer::stdio(
-                id,
-                configuration.command().clone(),
-                root_path,
-            ))
+            let command = configuration.command();
+            match command {
+                context_server::ContextServerCommand::Stdio {
+                    path,
+                    args,
+                    env,
+                    timeout,
+                } => {
+                    let stdio_command = context_server::ContextServerCommand::stdio(
+                        path.clone(),
+                        args.clone(),
+                        env.clone(),
+                        *timeout,
+                    );
+                    Arc::new(ContextServer::stdio(id, stdio_command, root_path))
+                }
+                context_server::ContextServerCommand::Http { url, timeout } => {
+                    let parsed_url = match url::Url::parse(url) {
+                        Ok(url) => url,
+                        Err(e) => {
+                            log::error!("Failed to parse HTTP URL '{}': {}", url, e);
+                            return Arc::new(ContextServer::stdio(
+                                id,
+                                context_server::ContextServerCommand::stdio(
+                                    std::path::PathBuf::from("echo"),
+                                    vec!["Failed to parse URL".to_string()],
+                                    None,
+                                    Some(1000),
+                                ),
+                                root_path,
+                            ));
+                        }
+                    };
+                    Arc::new(ContextServer::http(id, parsed_url, *timeout))
+                }
+            }
         }
     }
 
@@ -972,12 +1003,12 @@ mod tests {
                         server_2_id.0.clone(),
                         ContextServerSettings::Custom {
                             enabled: true,
-                            command: ContextServerCommand {
-                                path: "somebinary".into(),
-                                args: vec!["arg".to_string()],
-                                env: None,
-                                timeout: None,
-                            },
+                            command: ContextServerCommand::stdio(
+                                "somebinary".into(),
+                                vec!["arg".to_string()],
+                                None,
+                                None,
+                            ),
                         },
                     ),
                 ],
@@ -1013,12 +1044,12 @@ mod tests {
                         server_2_id.0.clone(),
                         ContextServerSettings::Custom {
                             enabled: true,
-                            command: ContextServerCommand {
-                                path: "somebinary".into(),
-                                args: vec!["anotherArg".to_string()],
-                                env: None,
-                                timeout: None,
-                            },
+                            command: ContextServerCommand::stdio(
+                                "somebinary".into(),
+                                vec!["arg".to_string()],
+                                None,
+                                None,
+                            ),
                         },
                     ),
                 ],
@@ -1096,12 +1127,12 @@ mod tests {
                 SERVER_1_ID.into(),
                 ContextServerSettings::Custom {
                     enabled: true,
-                    command: ContextServerCommand {
-                        path: "somebinary".into(),
-                        args: vec!["arg".to_string()],
-                        env: None,
-                        timeout: None,
-                    },
+                    command: ContextServerCommand::stdio(
+                        "somebinary".into(),
+                        vec!["arg".to_string()],
+                        None,
+                        None,
+                    ),
                 },
             )],
         )
@@ -1149,12 +1180,12 @@ mod tests {
                     server_1_id.0.clone(),
                     ContextServerSettings::Custom {
                         enabled: false,
-                        command: ContextServerCommand {
-                            path: "somebinary".into(),
-                            args: vec!["arg".to_string()],
-                            env: None,
-                            timeout: None,
-                        },
+                        command: ContextServerCommand::stdio(
+                            "somebinary".into(),
+                            vec!["arg".to_string()],
+                            None,
+                            None,
+                        ),
                     },
                 )],
                 cx,
@@ -1178,12 +1209,12 @@ mod tests {
                     server_1_id.0.clone(),
                     ContextServerSettings::Custom {
                         enabled: true,
-                        command: ContextServerCommand {
-                            path: "somebinary".into(),
-                            args: vec!["arg".to_string()],
-                            timeout: None,
-                            env: None,
-                        },
+                        command: ContextServerCommand::stdio(
+                            "somebinary".into(),
+                            vec!["arg".to_string()],
+                            None,
+                            None,
+                        ),
                     },
                 )],
                 cx,
@@ -1231,12 +1262,12 @@ mod tests {
     fn dummy_server_settings() -> ContextServerSettings {
         ContextServerSettings::Custom {
             enabled: true,
-            command: ContextServerCommand {
-                path: "somebinary".into(),
-                args: vec!["arg".to_string()],
-                env: None,
-                timeout: None,
-            },
+            command: ContextServerCommand::stdio(
+                "somebinary".into(),
+                vec!["arg".to_string()],
+                None,
+                None,
+            ),
         }
     }
 
@@ -1319,13 +1350,13 @@ mod tests {
             &self,
             _worktree_store: Entity<WorktreeStore>,
             _cx: &AsyncApp,
-        ) -> Task<Result<ContextServerCommand>> {
-            Task::ready(Ok(ContextServerCommand {
-                path: self.path.clone(),
-                args: vec!["arg1".to_string(), "arg2".to_string()],
-                env: None,
-                timeout: None,
-            }))
+        ) -> Task<anyhow::Result<ContextServerCommand>> {
+            Task::ready(Ok(ContextServerCommand::stdio(
+                self.path.clone(),
+                vec![],
+                None,
+                None,
+            )))
         }
 
         fn configuration(

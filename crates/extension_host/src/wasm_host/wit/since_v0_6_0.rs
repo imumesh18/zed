@@ -968,14 +968,29 @@ impl ExtensionImports for WasmState {
                             project::project_settings::ContextServerSettings::Custom {
                                 enabled: _,
                                 command,
-                            } => Ok(serde_json::to_string(&settings::ContextServerSettings {
-                                command: Some(settings::CommandSettings {
-                                    path: command.path.to_str().map(|path| path.to_string()),
-                                    arguments: Some(command.args),
-                                    env: command.env.map(|env| env.into_iter().collect()),
-                                }),
-                                settings: None,
-                            })?),
+                            } => {
+                                let command_settings = match command {
+                                    ::context_server::ContextServerCommand::Stdio {
+                                        path,
+                                        args,
+                                        env,
+                                        ..
+                                    } => Some(settings::CommandSettings {
+                                        path: path.to_str().map(|path| path.to_string()),
+                                        arguments: Some(args.clone()),
+                                        env: env.as_ref().map(|env| {
+                                            env.iter()
+                                                .map(|(k, v)| (k.clone(), v.clone()))
+                                                .collect()
+                                        }),
+                                    }),
+                                    _ => None,
+                                };
+                                Ok(serde_json::to_string(&settings::ContextServerSettings {
+                                    command: command_settings,
+                                    settings: None,
+                                })?)
+                            }
                             project::project_settings::ContextServerSettings::Extension {
                                 enabled: _,
                                 settings,

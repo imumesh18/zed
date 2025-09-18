@@ -17,10 +17,11 @@ use std::{
     },
     time::{Duration, Instant},
 };
+use url::Url;
 use util::{ResultExt, TryFutureExt};
 
 use crate::{
-    transport::{StdioTransport, Transport},
+    transport::{HttpTransport, StdioTransport, Transport},
     types::{CancelledParams, ClientNotification, Notification as _, notifications::Cancelled},
 };
 
@@ -180,7 +181,17 @@ impl Client {
         Self::new(server_id, server_name.into(), transport, timeout, cx)
     }
 
-    /// Creates a new Client instance for a context server.
+    pub fn http(
+        server_id: ContextServerId,
+        server_name: Arc<str>,
+        url: Url,
+        request_timeout: Option<Duration>,
+        cx: AsyncApp,
+    ) -> Result<Self> {
+        let transport = Arc::new(HttpTransport::new(url, &cx)?);
+        Self::new(server_id, server_name, transport, request_timeout, cx)
+    }
+
     pub fn new(
         server_id: ContextServerId,
         server_name: Arc<str>,
@@ -353,13 +364,22 @@ impl Client {
         timeout: Option<Duration>,
     ) -> Result<T> {
         let id = self.next_id.fetch_add(1, SeqCst);
-        let request = serde_json::to_string(&Request {
-            jsonrpc: JSON_RPC_VERSION,
-            id: RequestId::Int(id),
-            method,
-            params,
-        })
-        .unwrap();
+        // Build JSON-RPC request object manually to omit params when unit/null.
+        let params_value = serde_json::to_value(&params).unwrap();
+        let mut obj = serde_json::Map::new();
+        obj.insert(
+            "jsonrpc".into(),
+            Value::String(JSON_RPC_VERSION.to_string()),
+        );
+        obj.insert(
+            "id".into(),
+            serde_json::to_value(RequestId::Int(id)).expect("serialize id"),
+        );
+        obj.insert("method".into(), Value::String(method.to_string()));
+        if !params_value.is_null() {
+            obj.insert("params".into(), params_value);
+        }
+        let request = Value::Object(obj).to_string();
 
         let (tx, rx) = oneshot::channel();
         let handle_response = self
@@ -441,12 +461,17 @@ impl Client {
     /// Sends a notification to the context server without expecting a response.
     /// This function serializes the notification and sends it through the outbound channel.
     pub fn notify(&self, method: &str, params: impl Serialize) -> Result<()> {
-        let notification = serde_json::to_string(&Notification {
-            jsonrpc: JSON_RPC_VERSION,
-            method,
-            params,
-        })
-        .unwrap();
+        let params_value = serde_json::to_value(&params).unwrap();
+        let mut obj = serde_json::Map::new();
+        obj.insert(
+            "jsonrpc".into(),
+            Value::String(JSON_RPC_VERSION.to_string()),
+        );
+        obj.insert("method".into(), Value::String(method.to_string()));
+        if !params_value.is_null() {
+            obj.insert("params".into(), params_value);
+        }
+        let notification = Value::Object(obj).to_string();
         self.outbound_tx.try_send(notification)?;
         Ok(())
     }

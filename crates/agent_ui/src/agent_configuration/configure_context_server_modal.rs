@@ -181,34 +181,23 @@ impl ConfigurationSource {
 }
 
 fn context_server_input(existing: Option<(ContextServerId, ContextServerCommand)>) -> String {
-    let (name, command, args, env) = match existing {
+    match existing {
         Some((id, cmd)) => {
-            let args = serde_json::to_string(&cmd.args).unwrap();
-            let env = serde_json::to_string(&cmd.env.unwrap_or_default()).unwrap();
-            (id.0.to_string(), cmd.path, args, env)
+            let config = serde_json::to_value(&cmd).unwrap_or_default();
+            let mut server_map = std::collections::HashMap::new();
+            server_map.insert(id.0.as_ref(), config);
+            serde_json::to_string_pretty(&server_map).unwrap_or_else(|_| "{}".to_string())
         }
-        None => (
-            "some-mcp-server".to_string(),
-            PathBuf::new(),
-            "[]".to_string(),
-            "{}".to_string(),
-        ),
-    };
-
-    format!(
-        r#"{{
-  /// The name of your MCP server
-  "{name}": {{
-    /// The command which runs the MCP server
-    "command": "{}",
-    /// The arguments to pass to the MCP server
-    "args": {args},
-    /// The environment variables to set
-    "env": {env}
-  }}
-}}"#,
-        command.display()
-    )
+        None => r#"{
+  "my-server": {
+    "transport": "stdio",
+    "command": "/path/to/mcp-server",
+    "args": ["--config", "config.json"],
+    "env": {"API_KEY": "your-key-here"}
+  }
+}"#
+        .to_string(),
+    }
 }
 
 fn resolve_context_server_extension(
@@ -470,7 +459,33 @@ fn parse_input(text: &str) -> Result<(ContextServerId, ContextServerCommand)> {
     let object = value.as_object().context("Expected object")?;
     anyhow::ensure!(object.len() == 1, "Expected exactly one key-value pair");
     let (context_server_name, value) = object.into_iter().next().unwrap();
-    let command: ContextServerCommand = serde_json::from_value(value.clone())?;
+
+    if let Ok(command) = serde_json::from_value::<ContextServerCommand>(value.clone()) {
+        return Ok((ContextServerId(context_server_name.clone().into()), command));
+    }
+
+    let obj = value.as_object().context("Expected command object")?;
+    let path = obj
+        .get("command")
+        .and_then(|v| v.as_str())
+        .context("Expected command string")?;
+    let args = obj
+        .get("args")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect()
+        })
+        .unwrap_or_default();
+    let env = obj.get("env").and_then(|v| v.as_object()).map(|obj| {
+        obj.iter()
+            .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
+            .collect()
+    });
+
+    let command = ContextServerCommand::stdio(PathBuf::from(path), args, env, None);
+
     Ok((ContextServerId(context_server_name.clone().into()), command))
 }
 

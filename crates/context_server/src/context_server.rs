@@ -17,6 +17,7 @@ use gpui::AsyncApp;
 use parking_lot::RwLock;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use url::Url;
 use util::redact::should_redact;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -29,33 +30,93 @@ impl Display for ContextServerId {
 }
 
 #[derive(Deserialize, Serialize, Clone, PartialEq, Eq, JsonSchema)]
-pub struct ContextServerCommand {
-    #[serde(rename = "command")]
-    pub path: PathBuf,
-    pub args: Vec<String>,
-    pub env: Option<HashMap<String, String>>,
-    /// Timeout for tool calls in milliseconds. Defaults to 60000 (60 seconds) if not specified.
-    pub timeout: Option<u64>,
+#[serde(tag = "transport", rename_all = "snake_case")]
+pub enum ContextServerCommand {
+    Stdio {
+        #[serde(rename = "command")]
+        path: PathBuf,
+        args: Vec<String>,
+        env: Option<HashMap<String, String>>,
+
+        timeout: Option<u64>,
+    },
+
+    Http {
+        url: String,
+        timeout: Option<u64>,
+    },
+}
+
+impl ContextServerCommand {
+    pub fn stdio(
+        path: PathBuf,
+        args: Vec<String>,
+        env: Option<HashMap<String, String>>,
+        timeout: Option<u64>,
+    ) -> Self {
+        Self::Stdio {
+            path,
+            args,
+            env,
+            timeout,
+        }
+    }
+
+    pub fn http(url: String, timeout: Option<u64>) -> Self {
+        Self::Http { url, timeout }
+    }
+
+    pub fn timeout(&self) -> u64 {
+        match self {
+            Self::Stdio { timeout, .. } => timeout.unwrap_or(60000),
+            Self::Http { timeout, .. } => timeout.unwrap_or(60000),
+        }
+    }
 }
 
 impl std::fmt::Debug for ContextServerCommand {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let filtered_env = self.env.as_ref().map(|env| {
-            env.iter()
-                .map(|(k, v)| (k, if should_redact(k) { "[REDACTED]" } else { v }))
-                .collect::<Vec<_>>()
-        });
+        match self {
+            Self::Stdio {
+                path,
+                args,
+                env,
+                timeout,
+            } => {
+                let filtered_env = env.as_ref().map(|env| {
+                    env.iter()
+                        .map(|(k, v)| (k, if should_redact(k) { "[REDACTED]" } else { v }))
+                        .collect::<Vec<_>>()
+                });
 
-        f.debug_struct("ContextServerCommand")
-            .field("path", &self.path)
-            .field("args", &self.args)
-            .field("env", &filtered_env)
-            .finish()
+                f.debug_struct("ContextServerCommand::Stdio")
+                    .field("path", path)
+                    .field("args", args)
+                    .field("env", &filtered_env)
+                    .field("timeout", timeout)
+                    .finish()
+            }
+            Self::Http { url, timeout } => f
+                .debug_struct("ContextServerCommand::Http")
+                .field("url", url)
+                .field("timeout", timeout)
+                .finish(),
+        }
     }
 }
 
 enum ContextServerTransport {
-    Stdio(ContextServerCommand, Option<PathBuf>),
+    Stdio {
+        path: PathBuf,
+        args: Vec<String>,
+        env: Option<HashMap<String, String>>,
+        timeout: Option<u64>,
+        working_directory: Option<PathBuf>,
+    },
+    Http {
+        url: Url,
+        timeout: Option<u64>,
+    },
     Custom(Arc<dyn crate::transport::Transport>),
 }
 
@@ -71,13 +132,24 @@ impl ContextServer {
         command: ContextServerCommand,
         working_directory: Option<Arc<Path>>,
     ) -> Self {
-        Self {
-            id,
-            client: RwLock::new(None),
-            configuration: ContextServerTransport::Stdio(
-                command,
-                working_directory.map(|directory| directory.to_path_buf()),
-            ),
+        match command {
+            ContextServerCommand::Stdio {
+                path,
+                args,
+                env,
+                timeout,
+            } => Self {
+                id,
+                client: RwLock::new(None),
+                configuration: ContextServerTransport::Stdio {
+                    path,
+                    args,
+                    env,
+                    timeout,
+                    working_directory: working_directory.map(|directory| directory.to_path_buf()),
+                },
+            },
+            _ => panic!("stdio() constructor requires ContextServerCommand::Stdio variant"),
         }
     }
 
@@ -86,6 +158,14 @@ impl ContextServer {
             id,
             client: RwLock::new(None),
             configuration: ContextServerTransport::Custom(transport),
+        }
+    }
+
+    pub fn http(id: ContextServerId, url: Url, timeout: Option<u64>) -> Self {
+        Self {
+            id,
+            client: RwLock::new(None),
+            configuration: ContextServerTransport::Http { url, timeout },
         }
     }
 
@@ -119,15 +199,28 @@ impl ContextServer {
 
     fn new_client(&self, cx: &AsyncApp) -> Result<Client> {
         Ok(match &self.configuration {
-            ContextServerTransport::Stdio(command, working_directory) => Client::stdio(
+            ContextServerTransport::Stdio {
+                path,
+                args,
+                env,
+                timeout,
+                working_directory,
+            } => Client::stdio(
                 client::ContextServerId(self.id.0.clone()),
                 client::ModelContextServerBinary {
-                    executable: Path::new(&command.path).to_path_buf(),
-                    args: command.args.clone(),
-                    env: command.env.clone(),
-                    timeout: command.timeout,
+                    executable: path.clone(),
+                    args: args.clone(),
+                    env: env.clone(),
+                    timeout: *timeout,
                 },
                 working_directory,
+                cx.clone(),
+            )?,
+            ContextServerTransport::Http { url, timeout } => Client::http(
+                client::ContextServerId(self.id.0.clone()),
+                self.id().0,
+                url.clone(),
+                timeout.map(std::time::Duration::from_millis),
                 cx.clone(),
             )?,
             ContextServerTransport::Custom(transport) => Client::new(
