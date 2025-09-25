@@ -109,6 +109,8 @@ pub struct Model {
     // reached. Zed does not currently implement this behaviour
     is_chat_fallback: bool,
     model_picker_enabled: bool,
+    #[serde(default, deserialize_with = "deserialize_supported_endpoints")]
+    supported_endpoints: Vec<ModelSupportedEndpoint>,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
@@ -174,6 +176,31 @@ pub enum ModelVendor {
     Unknown,
 }
 
+#[derive(Clone, Copy, Serialize, Deserialize, Debug, Eq, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum ModelSupportedEndpoint {
+    ChatCompletions,
+    Responses,
+}
+
+fn deserialize_supported_endpoints<'de, D>(
+    deserializer: D,
+) -> Result<Vec<ModelSupportedEndpoint>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let opt_strings: Option<Vec<String>> = serde::Deserialize::deserialize(deserializer)?;
+    Ok(opt_strings
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|s| match s.as_str() {
+            "chat_completions" => Some(ModelSupportedEndpoint::ChatCompletions),
+            "responses" => Some(ModelSupportedEndpoint::Responses),
+            _ => None,
+        })
+        .collect())
+}
+
 #[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Clone)]
 #[serde(tag = "type")]
 pub enum ChatMessagePart {
@@ -223,6 +250,10 @@ impl Model {
 
     pub fn tokenizer(&self) -> Option<&str> {
         self.capabilities.tokenizer.as_deref()
+    }
+
+    pub fn supported_endpoints(&self) -> &[ModelSupportedEndpoint] {
+        &self.supported_endpoints
     }
 }
 

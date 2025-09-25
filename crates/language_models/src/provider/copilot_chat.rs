@@ -7,8 +7,8 @@ use cloud_llm_client::CompletionIntent;
 use collections::HashMap;
 use copilot::copilot_chat::{
     ChatMessage, ChatMessageContent, ChatMessagePart, CopilotChat, ImageUrl,
-    Model as CopilotChatModel, ModelVendor, Request as CopilotChatRequest, ResponseEvent, Tool,
-    ToolCall,
+    Model as CopilotChatModel, ModelSupportedEndpoint, ModelVendor, Request as CopilotChatRequest,
+    ResponseEvent, Tool, ToolCall,
 };
 use copilot::{Copilot, Status};
 use futures::future::BoxFuture;
@@ -293,6 +293,20 @@ impl LanguageModel for CopilotChatLanguageModel {
             LanguageModelCompletionError,
         >,
     > {
+        if !self.model.supported_endpoints().is_empty()
+            && !self
+                .model
+                .supported_endpoints()
+                .contains(&ModelSupportedEndpoint::ChatCompletions)
+        {
+            return futures::future::ready(Err(anyhow!(
+                "Zed currently doesn't support this model: {}",
+                self.model.display_name()
+            )
+            .into()))
+            .boxed();
+        }
+
         let is_user_initiated = request.intent.is_none_or(|intent| match intent {
             CompletionIntent::UserPrompt
             | CompletionIntent::ThreadContextSummarization
